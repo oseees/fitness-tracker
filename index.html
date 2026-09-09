@@ -5134,6 +5134,29 @@ function migrateLegacyData() {
   }
 }
 
+// ── Shortcuts integration: /?addsteps=12345 injects HealthKit steps ──
+// iOS Shortcuts opens the URL with today's Apple Health step count; we log it
+// as an absolute value (replaces today's shortcut-imported steps, keeps manual ones).
+function handleShortcutSteps() {
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var v = parseInt(params.get('addsteps'));
+    if (!v || v < 0 || v > 100000) return;
+    // Must have an active profile to attribute the steps
+    if (!CURRENT_USER_ID) return;
+    var sk = 'fitnessShortcutSteps_' + todayKey();
+    var prev = parseInt(localStorage.getItem(sk)) || 0;
+    var manualOther = state.manualSteps[state.currentDate] || 0;
+    // Keep non-shortcut steps; replace only the shortcut portion
+    state.manualSteps[state.currentDate] = Math.max(0, manualOther - prev) + v;
+    localStorage.setItem(sk, String(v));
+    saveState();
+    // Clean the URL so refresh doesn't double-log
+    window.history.replaceState({}, '', window.location.pathname);
+    setTimeout(function() { render(); }, 300);
+  } catch(e) {}
+}
+
 // ── Init ──
 migrateLegacyData();
 var bootUsers = getUsers();
@@ -5172,6 +5195,9 @@ setInterval(() => {
     render();
   }
 }, 60000);
+
+// Handle iOS Shortcuts step injection (?addsteps=N) after boot completes
+handleShortcutSteps();
 </script>
 </body>
 </html>
