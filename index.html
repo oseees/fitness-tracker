@@ -2536,12 +2536,70 @@ function actuallyStartPedometer() {
   pedometer.lastStepTime = 0;
 
   window.addEventListener('devicemotion', handleAccelerometer, true);
+
+  // Keep the screen awake so counting never stops (iOS suspends JS when screen locks)
+  requestWakeLock();
   updatePedometerUI();
 }
+
+// ── Screen Wake Lock: keeps screen on while pedometer is active ──
+var wakeLock = null;
+
+function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return; // not supported — degrade silently
+  navigator.wakeLock.request('screen').then(function(lock) {
+    wakeLock = lock;
+    lock.addEventListener('release', function() {
+      wakeLock = null;
+      // If pedometer still active and page visible, re-acquire
+      if (pedometer.active && document.visibilityState === 'visible') {
+        setTimeout(requestWakeLock, 500);
+      }
+    });
+  }).catch(function() { /* wake lock denied — counting still works, screen may lock */ });
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    try { wakeLock.release(); } catch(e) {}
+    wakeLock = null;
+  }
+}
+
+// ── Background/foreground handling ──
+// iOS suspends all JS when backgrounded/locked. We can't stop that, but we:
+// 1. Save state immediately so zero steps are lost
+// 2. Resume automatically when the app comes back
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    // App going to background / screen locking — persist NOW
+    if (pedometer.active) saveState();
+    releaseWakeLock(); // OS releases it anyway; clean up
+  } else {
+    // App back in foreground
+    if (pedometer.active) {
+      // Resume motion listener (iOS may have dropped it) and wake lock
+      window.removeEventListener('devicemotion', handleAccelerometer, true);
+      window.addEventListener('devicemotion', handleAccelerometer, true);
+      pedometer.lastMagnitude = 0; // avoid ghost spike from repositioning
+      requestWakeLock();
+      updatePedometerUI();
+    }
+    render(); // refresh rings/step display
+  }
+});
+
+// Extra safety: save steps periodically while pedometer runs (5s heartbeat)
+setInterval(function() {
+  if (pedometer.active && pedometer.stepCount > 0 && document.visibilityState === 'visible') {
+    saveState();
+  }
+}, 5000);
 
 function stopPedometer() {
   pedometer.active = false;
   window.removeEventListener('devicemotion', handleAccelerometer, true);
+  releaseWakeLock();
   saveState(); // save final step count
   updatePedometerUI();
 
