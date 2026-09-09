@@ -1227,21 +1227,25 @@ body {
         <circle id="standRing" cx="80" cy="80" r="40" stroke="var(--stand)" stroke-width="12"/>
       </svg>
       <div class="rings-labels">
-        <div class="ring-label">
+        <div class="ring-label" id="moveGoalRow" style="cursor:pointer" title="Tap to edit goal">
           <span class="dot" style="background:var(--move)"></span>
           <span class="val" id="moveVal">0</span>
           <span class="unit">/<span id="moveGoal">600</span> kcal</span>
+          <span style="font-size:10px;color:var(--ink-3);margin-left:4px">✎</span>
         </div>
-        <div class="ring-label">
+        <div class="ring-label" id="exerciseGoalRow" style="cursor:pointer" title="Tap to edit goal">
           <span class="dot" style="background:var(--exercise)"></span>
           <span class="val" id="exerciseVal">0</span>
           <span class="unit">/<span id="exerciseGoal">30</span> min</span>
+          <span style="font-size:10px;color:var(--ink-3);margin-left:4px">✎</span>
         </div>
-        <div class="ring-label">
+        <div class="ring-label" id="standGoalRow" style="cursor:pointer" title="Tap to edit goal">
           <span class="dot" style="background:var(--stand)"></span>
           <span class="val" id="standVal">0</span>
           <span class="unit">/<span id="standGoal">12</span> hrs</span>
+          <span style="font-size:10px;color:var(--ink-3);margin-left:4px">✎</span>
         </div>
+        <div style="font-size:10px;color:var(--ink-3);margin-top:4px;line-height:1.4">Move = step calories + workouts · Exercise = workout min + active min · Stand = active hours. Tap a row to change its goal.</div>
       </div>
     </div>
   </div>
@@ -1997,6 +2001,8 @@ function formatDateTitle(date) {
 }
 
 // ── Data access ──
+// NOTE: Today's data is REAL (starts at zero, grows as you log activity).
+// Past days (for chart history) are demo-generated.
 function getDay(key) {
   if (!state.days[key]) {
     const date = keyToDate(key);
@@ -2005,18 +2011,18 @@ function getDay(key) {
     const diff = Math.round((today - date) / 86400000);
 
     if (diff === 0) {
-      const hour = new Date().getHours();
-      const pf = Math.min(hour / 24, 1);
-      const baseSteps = Math.floor(800 * pf + Math.random() * 2000 * pf);
+      // Today — REAL data, starts empty
       state.days[key] = {
-        move: Math.floor(400 * pf + Math.random() * 150 * pf),
-        exercise: Math.floor(12 * pf + Math.random() * 5 * pf),
-        stand: Math.max(0, Math.min(12, hour - 6)),
-        steps: baseSteps,
-        distance: +(baseSteps * 0.0007).toFixed(1),
-        floors: Math.floor(pf * 6 + Math.random() * 3),
-        hr: 72 + Math.floor(Math.random() * 8),
-        workouts: []
+        move: 0,          // workout calories (added on log)
+        exercise: 0,      // workout minutes (added on log)
+        stand: 0,         // computed from standHours
+        steps: 0,         // auto-demo removed; real steps only
+        distance: 0,
+        floors: 0,
+        hr: 0,
+        workouts: [],
+        standHours: [],   // hours (0-23) with recorded activity
+        activeMinutes: 0  // minutes with pedometer-detected movement
       };
     } else if (diff > 0 && diff < 90) {
       const variance = 0.7 + Math.random() * 0.6;
@@ -2077,22 +2083,67 @@ function loadState() {
   } catch(e) {}
 }
 
-// ── Ring rendering ──
+// ── Ring rendering — REAL data driven ──
 function setRing(ringId, value, goal, radius) {
   const ring = document.getElementById(ringId);
   const circumference = 2 * Math.PI * radius;
-  const pct = Math.min(value / goal, 1);
+  const pct = goal > 0 ? Math.min(value / goal, 1) : 0;
   ring.setAttribute('stroke-dasharray', circumference);
   ring.setAttribute('stroke-dashoffset', circumference * (1 - pct));
 }
 
+// Compute the real Move value: step calories + logged workout calories
+function computeMoveValue(day) {
+  var weight = state.profile.currentWeight || 80;
+  var manualSteps = state.manualSteps[state.currentDate] || 0;
+  var totalSteps = (day.steps || 0) + manualSteps;
+  var stepCalories = calcStepsCalories(totalSteps, weight);
+  var workoutCalories = 0;
+  if (day.workouts) {
+    day.workouts.forEach(function(w) { workoutCalories += (w.calories || 0); });
+  }
+  return Math.round(stepCalories + workoutCalories);
+}
+
+// Compute the real Exercise value: workout minutes + pedometer active minutes
+function computeExerciseValue(day) {
+  var workoutMinutes = 0;
+  if (day.workouts) {
+    day.workouts.forEach(function(w) { workoutMinutes += (w.duration || 0); });
+  }
+  var activeMin = day.activeMinutes || 0;
+  return Math.round(workoutMinutes + activeMin);
+}
+
+// Compute the real Stand value: count of distinct hours with activity
+function computeStandValue(day) {
+  if (day.standHours && day.standHours.length) {
+    return day.standHours.length;
+  }
+  return day.stand || 0;
+}
+
+// Record activity in the current hour (drives the Stand ring + active minutes)
+function recordStandHour() {
+  var hour = new Date().getHours();
+  var day = getDay(state.currentDate);
+  if (!day.standHours) day.standHours = [];
+  if (day.standHours.indexOf(hour) === -1) {
+    day.standHours.push(hour);
+  }
+}
+
 function renderRings(day) {
-  setRing('moveRing', day.move, state.goals.move, 68);
-  setRing('exerciseRing', day.exercise, state.goals.exercise, 54);
-  setRing('standRing', day.stand, state.goals.stand, 40);
-  document.getElementById('moveVal').textContent = Math.round(day.move);
-  document.getElementById('exerciseVal').textContent = Math.round(day.exercise);
-  document.getElementById('standVal').textContent = Math.round(day.stand);
+  var moveValue = computeMoveValue(day);
+  var exerciseValue = computeExerciseValue(day);
+  var standValue = computeStandValue(day);
+
+  setRing('moveRing', moveValue, state.goals.move, 68);
+  setRing('exerciseRing', exerciseValue, state.goals.exercise, 54);
+  setRing('standRing', standValue, state.goals.stand, 40);
+  document.getElementById('moveVal').textContent = moveValue.toLocaleString();
+  document.getElementById('exerciseVal').textContent = exerciseValue;
+  document.getElementById('standVal').textContent = standValue;
   document.getElementById('moveGoal').textContent = state.goals.move;
   document.getElementById('exerciseGoal').textContent = state.goals.exercise;
   document.getElementById('standGoal').textContent = state.goals.stand;
@@ -2214,13 +2265,22 @@ function handleAccelerometer(event) {
     var day = state.manualSteps[state.currentDate] || 0;
     state.manualSteps[state.currentDate] = day + 1;
 
+    // Record stand hour + active minute (drives Stand & Exercise rings)
+    recordStandHour();
+    var d = getDay(state.currentDate);
+    if (!d.activeMinutes) d.activeMinutes = 0;
+    // Rough: ~100 steps/min walking pace — credit 1 active minute per 100 steps this session
+    var sessionActiveMin = Math.floor(pedometer.sessionSteps / 100);
+    if (sessionActiveMin > d.activeMinutes) d.activeMinutes = sessionActiveMin;
+
     // Save every 10 steps to avoid excessive writes
     if (pedometer.stepCount % 10 === 0) {
       saveState();
     }
 
-    // Update UI live
+    // Update UI live (rings + step counter)
     updateStepDisplay();
+    renderRings(getDay(state.currentDate));
   }
 }
 
@@ -2350,6 +2410,28 @@ document.getElementById('resetStepsBtn').addEventListener('click', function() {
 
   saveState();
   render();
+});
+
+// ── Editable ring goals — tap a ring label row to change its goal ──
+document.getElementById('moveGoalRow').addEventListener('click', function() {
+  var v = prompt('Move goal (kcal per day):', state.goals.move);
+  if (v === null) return;
+  var n = parseInt(v);
+  if (n && n > 0) { state.goals.move = n; saveState(); render(); }
+});
+
+document.getElementById('exerciseGoalRow').addEventListener('click', function() {
+  var v = prompt('Exercise goal (minutes per day):', state.goals.exercise);
+  if (v === null) return;
+  var n = parseInt(v);
+  if (n && n > 0) { state.goals.exercise = n; saveState(); render(); }
+});
+
+document.getElementById('standGoalRow').addEventListener('click', function() {
+  var v = prompt('Stand goal (hours per day):', state.goals.stand);
+  if (v === null) return;
+  var n = parseInt(v);
+  if (n && n > 0 && n <= 24) { state.goals.stand = n; saveState(); render(); }
 });
 
 // ── Charts ──
@@ -2760,6 +2842,12 @@ document.getElementById('saveStepsBtn').addEventListener('click', function() {
   if (stepsToAdd > 0) {
     var current = state.manualSteps[state.currentDate] || 0;
     state.manualSteps[state.currentDate] = current + stepsToAdd;
+    // Record stand hour + active minutes (drives Stand & Exercise rings)
+    recordStandHour();
+    var d = getDay(state.currentDate);
+    if (!d.activeMinutes) d.activeMinutes = 0;
+    var est = Math.floor(stepsToAdd / 100);
+    if (est > d.activeMinutes) d.activeMinutes = est;
   }
   if (newGoal && newGoal > 0) {
     state.stepGoal = newGoal;
@@ -2820,6 +2908,7 @@ document.getElementById('saveWorkoutBtn').addEventListener('click', () => {
   if (distance) day.distance += distance;
   if (hr) day.hr = hr;
   if (wt.id === 'run' || wt.id === 'walk') day.steps += Math.floor(duration * 130);
+  recordStandHour(); // workout counts toward Stand ring
   saveState();
   closeAllSheets();
   ['durationInput','caloriesInput','distanceInput','hrInput'].forEach(id => document.getElementById(id).value = '');
@@ -4572,10 +4661,9 @@ loadState();
 renderTypeGrid();
 render();
 
-// Re-render today's progress every minute
+// Refresh display every minute (no data wipe — today's data is real now)
 setInterval(() => {
   if (state.currentDate === todayKey()) {
-    delete state.days[todayKey()];
     render();
   }
 }, 60000);
