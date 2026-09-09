@@ -1271,6 +1271,7 @@ body {
     <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
       <button id="togglePedometerBtn" style="padding:10px 14px;background:var(--surface-2);border:1px solid var(--separator);border-radius:12px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Start</button>
       <button id="logStepsBtn" style="padding:10px 14px;background:var(--surface-2);border:1px solid var(--separator);border-radius:12px;color:var(--ink-2);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Manual</button>
+      <button id="resetStepsBtn" style="padding:10px 14px;background:var(--surface-2);border:1px solid var(--separator);border-radius:12px;color:var(--move);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Reset</button>
     </div>
   </div>
 
@@ -2317,6 +2318,38 @@ document.getElementById('togglePedometerBtn').addEventListener('click', function
   } else {
     startPedometer();
   }
+});
+
+// Reset steps handler — clears today's steps (auto + manual) and session count
+document.getElementById('resetStepsBtn').addEventListener('click', function() {
+  var current = state.manualSteps[state.currentDate] || 0;
+  var day = getDay(state.currentDate);
+  var total = (day.steps || 0) + current;
+
+  if (total === 0) {
+    alert('Steps are already at 0 for today.');
+    return;
+  }
+
+  var confirmed = confirm('Reset today\'s step count to 0?\n\nCurrent: ' + total.toLocaleString() + ' steps\n\nThis cannot be undone.');
+  if (!confirmed) return;
+
+  // Stop pedometer if running
+  if (pedometer.active) {
+    stopPedometer();
+  }
+
+  // Reset today's steps
+  state.manualSteps[state.currentDate] = 0;
+  var d = getDay(state.currentDate);
+  d.steps = 0;
+  d.distance = 0;
+
+  pedometer.sessionSteps = 0;
+  pedometer.stepCount = 0;
+
+  saveState();
+  render();
 });
 
 // ── Charts ──
