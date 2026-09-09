@@ -1701,8 +1701,9 @@ body {
   <div class="sheet-handle"></div>
   <h2>Log Steps</h2>
   <div class="form-group">
-    <label>Steps to Add</label>
-    <input type="number" id="stepsInput" placeholder="e.g. 3000" min="0" max="100000">
+    <label>Set Today's Total (from Apple Fitness)</label>
+    <input type="number" id="stepsInput" placeholder="e.g. 7254" min="0" max="100000">
+    <div style="font-size:12px;color:var(--ink-3);margin-top:6px">Open Apple Fitness, read the step number, type it here. Replaces today's count — rings and calories update automatically.</div>
   </div>
   <div class="form-group">
     <label>Daily Step Goal</label>
@@ -1711,7 +1712,7 @@ body {
   <div style="padding:14px;background:var(--surface-2);border-radius:12px;font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:16px">
     <strong style="color:var(--ink)">Calorie estimate:</strong> Based on your current weight (<span id="stepsWeightDisplay">—</span> kg), each step burns approximately <span id="stepsKcalPerStep">—</span> kcal.
   </div>
-  <button class="btn-primary" id="saveStepsBtn">Add Steps</button>
+  <button class="btn-primary" id="saveStepsBtn">Set Today's Steps</button>
   <button class="btn-secondary" id="cancelStepsBtn">Cancel</button>
 </div>
 
@@ -2130,8 +2131,19 @@ let state = {
   weightLog: [], // [{ date: 'YYYY-MM-DD', weight: 75.2 }, ...]
   generatedPlan: null, // stores the last generated plan
   stepGoal: 10000, // daily step goal
-  manualSteps: {}, // { 'YYYY-MM-DD': steps_added }
+  manualSteps: {}, // { 'YYYY-MM-DD': total set by user (from Apple Fitness) }
+  pedometerSteps: {}, // { 'YYYY-MM-DD': steps counted live by pedometer }
 };
+
+// Total steps for a day = set-total + pedometer count (day.steps is legacy/demo)
+function getTotalSteps(dateKey) {
+  var day = state.days[dateKey];
+  var set = state.manualSteps[dateKey] || 0;
+  var ped = state.pedometerSteps ? (state.pedometerSteps[dateKey] || 0) : 0;
+  var legacy = day ? (day.steps || 0) : 0;
+  // If a set-total exists it is authoritative for manualSteps; pedometer adds on top
+  return legacy + set + ped;
+}
 
 function todayKey() { return dateKey(new Date()); }
 
@@ -2273,8 +2285,7 @@ function setRing(ringId, value, goal, radius) {
 // Compute the real Move value: step calories + logged workout calories
 function computeMoveValue(day) {
   var weight = state.profile.currentWeight || 80;
-  var manualSteps = state.manualSteps[state.currentDate] || 0;
-  var totalSteps = (day.steps || 0) + manualSteps;
+  var totalSteps = getTotalSteps(state.currentDate);
   var stepCalories = calcStepsCalories(totalSteps, weight);
   var workoutCalories = 0;
   if (day.workouts) {
@@ -2347,8 +2358,7 @@ function renderMetrics(day) {
   var p = state.profile;
   var weight = p.currentWeight || 80;
   var height = p.height || 170;
-  var manualSteps = state.manualSteps[state.currentDate] || 0;
-  var totalSteps = (day.steps || 0) + manualSteps;
+  var totalSteps = getTotalSteps(state.currentDate);
 
   // Steps + calorie calculations
   var stepsCalories = calcStepsCalories(totalSteps, weight);
@@ -2439,9 +2449,9 @@ function handleAccelerometer(event) {
     pedometer.stepCount++;
     pedometer.sessionSteps++;
 
-    // Add to today's manual steps
-    var day = state.manualSteps[state.currentDate] || 0;
-    state.manualSteps[state.currentDate] = day + 1;
+    // Add to today's pedometer bucket (separate from the "set total" field)
+    var ped = state.pedometerSteps[state.currentDate] || 0;
+    state.pedometerSteps[state.currentDate] = ped + 1;
 
     // Record stand hour + active minute (drives Stand & Exercise rings)
     recordStandHour();
@@ -2467,8 +2477,7 @@ function updateStepDisplay() {
   var weight = p.currentWeight || 80;
   var height = p.height || 170;
   var day = getDay(state.currentDate);
-  var manualSteps = state.manualSteps[state.currentDate] || 0;
-  var totalSteps = (day.steps || 0) + manualSteps;
+  var totalSteps = getTotalSteps(state.currentDate);
   var stepsCalories = calcStepsCalories(totalSteps, weight);
   var stepsDistance = calcStepsDistance(totalSteps, height);
   var stepGoal = state.stepGoal || 10000;
@@ -2642,6 +2651,8 @@ document.getElementById('resetStepsBtn').addEventListener('click', function() {
 
   // FULL reset of today's activity data — steps, rings, everything
   state.manualSteps[state.currentDate] = 0;
+  if (!state.pedometerSteps) state.pedometerSteps = {};
+  state.pedometerSteps[state.currentDate] = 0;
   var d = getDay(state.currentDate);
   d.steps = 0;
   d.distance = 0;
@@ -3082,19 +3093,24 @@ document.getElementById('cancelStepsBtn').addEventListener('click', closeAllShee
 document.getElementById('cancelPlanBtn').addEventListener('click', closeAllSheets);
 sheetOverlay.addEventListener('click', closeAllSheets);
 
-// Save steps handler
+// Save steps handler — SETS today's total (replaces, from Apple Fitness number)
 document.getElementById('saveStepsBtn').addEventListener('click', function() {
-  var stepsToAdd = parseInt(document.getElementById('stepsInput').value) || 0;
+  var totalSteps = parseInt(document.getElementById('stepsInput').value);
   var newGoal = parseInt(document.getElementById('stepGoalInput').value);
 
-  if (stepsToAdd > 0) {
-    var current = state.manualSteps[state.currentDate] || 0;
-    state.manualSteps[state.currentDate] = current + stepsToAdd;
+  if (isNaN(totalSteps) || totalSteps < 0) {
+    alert('Enter your step count from Apple Fitness (or 0 to clear).');
+    return;
+  }
+
+  // Replace today's step total entirely
+  state.manualSteps[state.currentDate] = totalSteps;
+  var d = getDay(state.currentDate);
+  if (totalSteps > 0) {
     // Record stand hour + active minutes (drives Stand & Exercise rings)
     recordStandHour();
-    var d = getDay(state.currentDate);
     if (!d.activeMinutes) d.activeMinutes = 0;
-    var est = Math.floor(stepsToAdd / 100);
+    var est = Math.floor(totalSteps / 100);
     if (est > d.activeMinutes) d.activeMinutes = est;
   }
   if (newGoal && newGoal > 0) {
@@ -4966,6 +4982,7 @@ function switchToUser(id) {
   try { saved = JSON.parse(localStorage.getItem(userStorageKey(id))); } catch(e) {}
   state.days = {};
   state.manualSteps = {};
+  state.pedometerSteps = {};
   state.weightLog = [];
   state.generatedPlan = null;
   state.stepGoal = 10000;
@@ -4982,6 +4999,7 @@ function switchToUser(id) {
     if (saved.generatedPlan) state.generatedPlan = saved.generatedPlan;
     if (saved.stepGoal) state.stepGoal = saved.stepGoal;
     if (saved.manualSteps) state.manualSteps = saved.manualSteps;
+    if (saved.pedometerSteps) state.pedometerSteps = saved.pedometerSteps;
   }
   // Migration: wipe stale demo data for today (pre-rings-upgrade format)
   var tk = todayKey();
@@ -5174,6 +5192,7 @@ if (bootActive && bootUsers.find(function(u) { return u.id === bootActive; })) {
     if (saved.generatedPlan) state.generatedPlan = saved.generatedPlan;
     if (saved.stepGoal) state.stepGoal = saved.stepGoal;
     if (saved.manualSteps) state.manualSteps = saved.manualSteps;
+    if (saved.pedometerSteps) state.pedometerSteps = saved.pedometerSteps;
   }
   updateUserChip();
   renderTypeGrid();
