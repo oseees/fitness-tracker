@@ -853,6 +853,157 @@ body {
   50% { opacity: 0.4; }
 }
 
+/* ═══ USER ACCOUNTS ═══ */
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  padding: 4px 12px 4px 4px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.user-chip:active { background: var(--surface-3); }
+.user-chip .uc-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.user-chip .uc-name {
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Onboarding overlay */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.onboarding-overlay.hidden { display: none; }
+.onboarding-card {
+  width: 100%;
+  max-width: 360px;
+}
+.onboarding-card h1 {
+  font-size: 30px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: -0.5px;
+}
+.onboarding-card .ob-sub {
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-bottom: 28px;
+  line-height: 1.5;
+}
+.profile-list { margin-bottom: 20px; }
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.profile-row:active { background: var(--surface-2); }
+.profile-row .pr-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.profile-row .pr-info { flex: 1; }
+.profile-row .pr-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+.profile-row .pr-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+.profile-row .pr-chevron {
+  color: var(--ink-3);
+  font-size: 18px;
+}
+.add-profile-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px dashed var(--separator);
+  border-radius: 14px;
+  color: var(--blue);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.new-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.new-profile-form input, .new-profile-form select {
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: 17px;
+  outline: none;
+}
+.new-profile-form input:focus, .new-profile-form select:focus {
+  border-color: var(--blue);
+}
+.ob-back {
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 8px 0;
+  text-align: left;
+}
+.color-choices {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.color-dot {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid transparent;
+  transition: border-color .15s;
+}
+.color-dot.selected { border-color: white; }
+
 /* ── Responsive ── */
 @media (max-width: 375px) {
   .date-header h1 { font-size: 28px; }
@@ -1202,9 +1353,22 @@ body {
 </head>
 <body>
 
+<!-- ═══ Onboarding / Profile Picker ═══ -->
+<div class="onboarding-overlay hidden" id="onboardingOverlay">
+  <div class="onboarding-card" id="onboardingCard">
+    <!-- Filled by JS -->
+  </div>
+</div>
+
 <!-- ═══ Date Header ═══ -->
 <div class="date-header">
-  <h1 id="dateTitle">Today</h1>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <h1 id="dateTitle">Today</h1>
+    <div class="user-chip" id="userChip">
+      <div class="uc-avatar" id="userChipAvatar">?</div>
+      <span class="uc-name" id="userChipName">Set up</span>
+    </div>
+  </div>
   <div class="date-nav">
     <button id="prevDay" aria-label="Previous day">‹</button>
     <span class="date-label" id="dateLabel"></span>
@@ -4700,10 +4864,249 @@ document.getElementById('generatePlanBtn').addEventListener('click', function() 
   });
 });
 
+// ════════════════════════════════════════════════
+//  MULTI-USER PROFILES
+// ════════════════════════════════════════════════
+
+var USERS_KEY = 'fitnessUsers';        // list of profiles
+var ACTIVE_KEY = 'fitnessActiveUser';  // which profile is active on this device
+
+var PROFILE_COLORS = ['#0a84ff', '#fa2d48', '#a8e800', '#00e5ff', '#bf5af2', '#ff9f0a', '#30d158', '#ff6b35'];
+
+function getUsers() {
+  try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch(e) { return []; }
+}
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+function getActiveUserId() {
+  return localStorage.getItem(ACTIVE_KEY) || null;
+}
+function setActiveUserId(id) {
+  localStorage.setItem(ACTIVE_KEY, id);
+}
+
+// Per-user storage key: data is namespaced by user id
+var CURRENT_USER_ID = null;
+
+function userStorageKey(id) {
+  return STORAGE_KEY + '_' + id;
+}
+
+// Switch the active profile — saves current data first, loads target user's data
+function switchToUser(id) {
+  // Save current user's data under their key
+  if (CURRENT_USER_ID) {
+    saveState();
+    saveStateTo(CURRENT_USER_ID);
+  }
+  CURRENT_USER_ID = id;
+  setActiveUserId(id);
+
+  // Load the target user's data into state
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(userStorageKey(id))); } catch(e) {}
+  state.days = {};
+  state.manualSteps = {};
+  state.weightLog = [];
+  state.generatedPlan = null;
+  state.stepGoal = 10000;
+  state.goals = { move: 600, exercise: 30, stand: 12 };
+  state.profile = {
+    currentWeight: null, targetWeight: null, startWeight: null,
+    height: null, age: null, sex: 'male', country: null
+  };
+  if (saved) {
+    if (saved.days) state.days = saved.days;
+    if (saved.goals) state.goals = saved.goals;
+    if (saved.profile) state.profile = Object.assign(state.profile, saved.profile);
+    if (saved.weightLog) state.weightLog = saved.weightLog;
+    if (saved.generatedPlan) state.generatedPlan = saved.generatedPlan;
+    if (saved.stepGoal) state.stepGoal = saved.stepGoal;
+    if (saved.manualSteps) state.manualSteps = saved.manualSteps;
+  }
+  // Migration: wipe stale demo data for today (pre-rings-upgrade format)
+  var tk = todayKey();
+  if (state.days[tk] && (state.days[tk].stand > 0 || state.days[tk].steps > 0) && !state.days[tk].standHours) {
+    delete state.days[tk];
+    state.manualSteps[tk] = 0;
+  }
+  state.currentDate = todayKey();
+  render();
+  updateUserChip();
+}
+
+// Save current state into the active user's namespace
+function saveStateTo(userId) {
+  try {
+    localStorage.setItem(userStorageKey(userId), JSON.stringify(state));
+  } catch(e) {}
+}
+
+// Wrap the existing global saveState to write to the active user's namespace
+var _origSaveState = saveState;
+saveState = function() {
+  _origSaveState();
+  if (CURRENT_USER_ID) saveStateTo(CURRENT_USER_ID);
+};
+
+// ── Onboarding UI ──
+function showOnboarding(view, editingUserId) {
+  var overlay = document.getElementById('onboardingOverlay');
+  var card = document.getElementById('onboardingCard');
+  overlay.classList.remove('hidden');
+  var users = getUsers();
+
+  if (view === 'picker') {
+    var rows = '';
+    users.forEach(function(u) {
+      rows += '<div class="profile-row" data-user="' + u.id + '">' +
+        '<div class="pr-avatar" style="background:' + u.color + ';color:white">' + (u.name ? u.name.substring(0,2).toUpperCase() : '?') + '</div>' +
+        '<div class="pr-info"><div class="pr-name">' + u.name + '</div>' +
+        '<div class="pr-meta">' + (u.currentWeight ? u.currentWeight + ' kg' : 'No weight set') + '</div></div>' +
+        '<div class="pr-chevron">›</div></div>';
+    });
+    card.innerHTML = '<h1>Who\'s training?</h1>' +
+      '<div class="ob-sub">Each person gets their own weights, goals, rings, and plan on this device.</div>' +
+      '<div class="profile-list">' + (rows || '') + '</div>' +
+      '<button class="add-profile-btn" id="obAddProfile">+ New Profile</button>';
+    card.querySelectorAll('.profile-row').forEach(function(row) {
+      row.addEventListener('click', function() {
+        switchToUser(row.getAttribute('data-user'));
+        hideOnboarding();
+      });
+    });
+    document.getElementById('obAddProfile').addEventListener('click', function() {
+      showOnboarding('new');
+    });
+  } else if (view === 'new') {
+    var colorDots = '';
+    PROFILE_COLORS.forEach(function(c, i) {
+      colorDots += '<div class="color-dot' + (i === 0 ? ' selected' : '') + '" data-color="' + c + '" style="background:' + c + '"></div>';
+    });
+    card.innerHTML = '<button class="ob-back" id="obBack">' + (users.length ? '‹ Back' : ' ') + '</button>' +
+      '<h1>Create Profile</h1>' +
+      '<div class="ob-sub">Your data stays private on this device.</div>' +
+      '<div class="new-profile-form">' +
+        '<input type="text" id="obName" placeholder="Your name" maxlength="20">' +
+        '<div class="form-row"><input type="number" id="obWeight" placeholder="Current weight (kg)" min="30" max="300" step="0.1">' +
+        '<input type="number" id="obTarget" placeholder="Target (kg)" min="30" max="300" step="0.1"></div>' +
+        '<div class="form-row"><input type="number" id="obHeight" placeholder="Height (cm)" min="100" max="250">' +
+        '<input type="number" id="obAge" placeholder="Age" min="10" max="120"></div>' +
+        '<select id="obSex"><option value="male">Male</option><option value="female">Female</option></select>' +
+        '<div><div style="font-size:13px;color:var(--ink-2);margin-bottom:8px">Avatar color</div><div class="color-choices" id="obColors">' + colorDots + '</div></div>' +
+      '</div>' +
+      '<button class="btn-primary" id="obCreate" style="margin-top:20px">Start Training</button>';
+
+    card.querySelectorAll('.color-dot').forEach(function(dot) {
+      dot.addEventListener('click', function() {
+        card.querySelectorAll('.color-dot').forEach(function(d) { d.classList.remove('selected'); });
+        dot.classList.add('selected');
+      });
+    });
+    document.getElementById('obBack').addEventListener('click', function() {
+      if (users.length) showOnboarding('picker'); else hideOnboarding();
+    });
+    document.getElementById('obCreate').addEventListener('click', function() {
+      var name = document.getElementById('obName').value.trim();
+      if (!name) { alert('Please enter your name.'); return; }
+      var user = {
+        id: 'u' + Date.now(),
+        name: name,
+        color: card.querySelector('.color-dot.selected') ? card.querySelector('.color-dot.selected').getAttribute('data-color') : PROFILE_COLORS[0],
+        createdAt: todayKey()
+      };
+      var w = parseFloat(document.getElementById('obWeight').value);
+      var t = parseFloat(document.getElementById('obTarget').value);
+      var h = parseFloat(document.getElementById('obHeight').value);
+      var a = parseInt(document.getElementById('obAge').value);
+      var s = document.getElementById('obSex').value;
+      users.push(user);
+      saveUsers(users);
+
+      switchToUser(user.id);
+      if (w) { state.profile.currentWeight = w; state.profile.startWeight = w; state.weightLog.push({date: todayKey(), weight: w}); }
+      if (t) state.profile.targetWeight = t;
+      if (h) state.profile.height = h;
+      if (a) state.profile.age = a;
+      state.profile.sex = s;
+      saveState();
+      hideOnboarding();
+    });
+  }
+}
+
+function hideOnboarding() {
+  document.getElementById('onboardingOverlay').classList.add('hidden');
+}
+
+function updateUserChip() {
+  var users = getUsers();
+  var active = users.find(function(u) { return u.id === CURRENT_USER_ID; });
+  var avatar = document.getElementById('userChipAvatar');
+  var name = document.getElementById('userChipName');
+  if (active) {
+    avatar.textContent = active.name.substring(0, 2).toUpperCase();
+    avatar.style.background = active.color;
+    name.textContent = active.name;
+  } else {
+    avatar.textContent = '?';
+    avatar.style.background = 'var(--surface-3)';
+    name.textContent = 'Set up';
+  }
+}
+
+document.getElementById('userChip').addEventListener('click', function() {
+  showOnboarding('picker');
+});
+
+// Migrate: if there is existing single-user data but no profiles yet, wrap it
+// into a profile automatically so nobody loses data.
+function migrateLegacyData() {
+  var users = getUsers();
+  if (users.length > 0) return;
+  var legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch(e) {}
+  if (legacy && legacy.profile && legacy.profile.currentWeight) {
+    var u = { id: 'u' + Date.now(), name: 'My Profile', color: PROFILE_COLORS[0], createdAt: todayKey() };
+    users.push(u);
+    saveUsers(users);
+    switchToUser(u.id);
+    setActiveUserId(u.id);
+  }
+}
+
 // ── Init ──
-loadState();
-renderTypeGrid();
-render();
+migrateLegacyData();
+var bootUsers = getUsers();
+var bootActive = getActiveUserId();
+if (bootActive && bootUsers.find(function(u) { return u.id === bootActive; })) {
+  CURRENT_USER_ID = bootActive;
+  // Load active user's data
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(userStorageKey(bootActive))); } catch(e) {}
+  if (saved) {
+    if (saved.days) state.days = saved.days;
+    if (saved.goals) state.goals = saved.goals;
+    if (saved.profile) state.profile = Object.assign(state.profile, saved.profile);
+    if (saved.weightLog) state.weightLog = saved.weightLog;
+    if (saved.generatedPlan) state.generatedPlan = saved.generatedPlan;
+    if (saved.stepGoal) state.stepGoal = saved.stepGoal;
+    if (saved.manualSteps) state.manualSteps = saved.manualSteps;
+  }
+  updateUserChip();
+  renderTypeGrid();
+  render();
+} else if (bootUsers.length > 0) {
+  renderTypeGrid();
+  updateUserChip();
+  showOnboarding('picker');
+} else {
+  // Brand new device — show onboarding
+  renderTypeGrid();
+  updateUserChip();
+  showOnboarding('new');
+}
 
 // Refresh display every minute (no data wipe — today's data is real now)
 setInterval(() => {
