@@ -1581,9 +1581,16 @@ body {
 
   <div class="form-row">
     <div class="form-group">
+      <label>Current Weight (kg)</label>
+      <input type="number" id="planCurrentWeightInput" placeholder="75" min="30" max="300" step="0.1">
+    </div>
+    <div class="form-group">
       <label>Target Weight (kg)</label>
       <input type="number" id="planTargetInput" placeholder="70" min="30" max="300" step="0.1">
     </div>
+  </div>
+
+  <div class="form-row">
     <div class="form-group">
       <label>Activity Level</label>
       <select id="planActivityInput">
@@ -2079,6 +2086,13 @@ function loadState() {
       if (p.generatedPlan) state.generatedPlan = p.generatedPlan;
       if (p.stepGoal) state.stepGoal = p.stepGoal;
       if (p.manualSteps) state.manualSteps = p.manualSteps;
+      // Migration: today's saved day record may be stale demo data from before
+      // the rings upgrade. Reset it so today starts clean and real.
+      var tk = todayKey();
+      if (state.days[tk] && (state.days[tk].stand > 0 || state.days[tk].steps > 0) && !state.days[tk].standHours) {
+        delete state.days[tk];
+        state.manualSteps[tk] = 0;
+      }
     }
   } catch(e) {}
 }
@@ -2385,25 +2399,37 @@ document.getElementById('resetStepsBtn').addEventListener('click', function() {
   var current = state.manualSteps[state.currentDate] || 0;
   var day = getDay(state.currentDate);
   var total = (day.steps || 0) + current;
+  var workoutCount = day.workouts ? day.workouts.length : 0;
 
-  if (total === 0) {
-    alert('Steps are already at 0 for today.');
+  if (total === 0 && computeMoveValue(day) === 0 && computeExerciseValue(day) === 0 && computeStandValue(day) === 0) {
+    alert('Today\'s activity is already empty.');
     return;
   }
 
-  var confirmed = confirm('Reset today\'s step count to 0?\n\nCurrent: ' + total.toLocaleString() + ' steps\n\nThis cannot be undone.');
-  if (!confirmed) return;
+  var msg = 'Reset ALL of today\'s activity?\n\n' +
+    'Steps: ' + total.toLocaleString() + '\n' +
+    'Logged workouts: ' + workoutCount + '\n' +
+    'Active minutes: ' + (day.activeMinutes || 0) + '\n\n' +
+    'This clears steps, workouts, and all three rings for today. Cannot be undone.';
+  if (!confirm(msg)) return;
 
   // Stop pedometer if running
   if (pedometer.active) {
     stopPedometer();
   }
 
-  // Reset today's steps
+  // FULL reset of today's activity data — steps, rings, everything
   state.manualSteps[state.currentDate] = 0;
   var d = getDay(state.currentDate);
   d.steps = 0;
   d.distance = 0;
+  d.move = 0;
+  d.exercise = 0;
+  d.stand = 0;
+  d.standHours = [];
+  d.activeMinutes = 0;
+  d.workouts = [];
+  d.hr = 0;
 
   pedometer.sessionSteps = 0;
   pedometer.stepCount = 0;
@@ -2865,6 +2891,7 @@ document.getElementById('planSheet').addEventListener('click', function(e) {
 });
 function prefillPlanForm() {
   var p = state.profile;
+  if (p.currentWeight) document.getElementById('planCurrentWeightInput').value = p.currentWeight;
   if (p.targetWeight) document.getElementById('planTargetInput').value = p.targetWeight;
   if (p.country) document.getElementById('planCountryInput').value = ''; // leave as "use profile"
 }
@@ -4611,6 +4638,7 @@ function renderProgressRingSVG(pct) {
 // Generate plan button handler
 document.getElementById('generatePlanBtn').addEventListener('click', function() {
   var weeks = parseInt(document.getElementById('planDurationInput').value);
+  var currentWeightInput = parseFloat(document.getElementById('planCurrentWeightInput').value);
   var targetWeight = parseFloat(document.getElementById('planTargetInput').value);
   var activityLevel = document.getElementById('planActivityInput').value;
   var workoutDays = parseInt(document.getElementById('planWorkoutDaysInput').value);
@@ -4621,13 +4649,29 @@ document.getElementById('generatePlanBtn').addEventListener('click', function() 
   if (!targetWeight || targetWeight < 30) { alert('Please enter a valid target weight (30+ kg).'); return; }
 
   var p = state.profile;
-  if (!p.currentWeight) {
-    alert('Please set your current weight in the Weight & Profile settings first.');
+
+  // Use the current weight from the form (defaults to profile weight)
+  var effectiveCurrentWeight = currentWeightInput || p.currentWeight;
+  if (!effectiveCurrentWeight) {
+    alert('Please enter your current weight.');
     return;
   }
 
-  if (targetWeight >= p.currentWeight) {
-    alert('Target weight should be less than your current weight (' + p.currentWeight + ' kg) for a weight loss plan.');
+  // Sync the entered current weight into the profile + weight log
+  if (currentWeightInput && currentWeightInput !== p.currentWeight) {
+    p.currentWeight = currentWeightInput;
+    if (!p.startWeight || p.startWeight > currentWeightInput) p.startWeight = currentWeightInput;
+    var todayK = todayKey();
+    var existingIdx = state.weightLog.findIndex(function(e) { return e.date === todayK; });
+    if (existingIdx >= 0) {
+      state.weightLog[existingIdx].weight = currentWeightInput;
+    } else {
+      state.weightLog.push({ date: todayK, weight: currentWeightInput });
+    }
+  }
+
+  if (targetWeight >= effectiveCurrentWeight) {
+    alert('Target weight should be less than your current weight (' + effectiveCurrentWeight + ' kg) for a weight loss plan.');
     return;
   }
 
